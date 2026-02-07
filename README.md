@@ -7,7 +7,7 @@
 - Registro de sessões de estudo
 - Sistema de pontuação, níveis e conquistas
 - Ranking local entre usuários do mesmo ambiente
-- Aplicação prática com usuários reais
+-  Aplicação prática com usuários reais
   
 ## Participantes:
 - Vinicius Duarte (PO)
