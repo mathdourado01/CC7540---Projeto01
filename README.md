@@ -14,6 +14,7 @@
 - Julian Ryu (Scrum Master)
 - Matheus Dourado Valle (Equipe de Desenvolvimento)
 - João Pedro Sabino (Equipe de Desenvolvimento)
+- João Pedro Peterutto (Equipe de Desenvolvimento)
 
 ## Papeis:
 ### Product Owner (PO)
