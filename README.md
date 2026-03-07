@@ -1,4 +1,8 @@
 # CC7540 - Plataforma de Acompanhamento de Estudos com Gamificação
+
+## Link do Trello:
+https://trello.com/b/1j6WDfBm/studyrats
+
 ## Projeto ideia:
 - Aplicação web acessível via navegador
 -Execução local (servidor local)
