@@ -6,7 +6,7 @@ https://trello.com/b/1j6WDfBm/studyrats
 ## Objetivo da Sprint 1
 O objetivo da Sprint 1 foi desenvolver a base funcional da plataforma **StudyRats**, contemplando a implementação das funcionalidades de **cadastro**, **login** e **dashboard de métricas**, de forma a permitir o acesso dos usuários ao sistema e a visualização inicial de informações relevantes sobre seu desempenho. Além disso, a sprint também prevê a implementação do **registro/upload de sessões de estudo** e do **ranking local de comparação**, ampliando a experiência do usuário com recursos de acompanhamento de progresso e comparação de desempenho dentro da plataforma.
 
-A imagem do quadro Kanban pode ser encontrado na pasta materiais_de_aula.
+A imagem do quadro Kanban pode ser encontrado na pasta arquivos_de_aula.
 
 ## Projeto ideia:
 - Aplicação web acessível via navegador
