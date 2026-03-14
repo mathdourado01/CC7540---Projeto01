@@ -1,6 +1,7 @@
 import re
 
 
+
 def validate_signup_form(name: str, email: str, password: str, confirm_password: str) -> list[str]:
     errors = []
 
@@ -27,6 +28,7 @@ def validate_signup_form(name: str, email: str, password: str, confirm_password:
         errors.append("A senha deve ter pelo menos 6 caracteres.")
 
     return errors
+
 
 
 def validate_login_form(email: str, password: str) -> list[str]:
