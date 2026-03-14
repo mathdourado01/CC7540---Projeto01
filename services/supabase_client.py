@@ -9,7 +9,6 @@ def get_base_supabase_client() -> Client:
     return create_client(url, key)
 
 
-
 def get_supabase_client(access_token: str | None = None, refresh_token: str | None = None) -> Client:
     url = st.secrets["url"]
     key = st.secrets["key"]

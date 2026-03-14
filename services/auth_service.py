@@ -35,7 +35,6 @@ def register_user(name: str, email: str, password: str, is_private: bool) -> tup
         return False, f"Erro ao cadastrar usuário: {e}"
 
 
-
 def login_user(email: str, password: str) -> tuple[bool, str, object | None, object | None]:
     supabase = get_supabase_client()
 
@@ -59,7 +58,6 @@ def login_user(email: str, password: str) -> tuple[bool, str, object | None, obj
             return False, "E-mail ou senha inválidos.", None, None
 
         return False, f"Erro ao fazer login: {e}", None, None
-
 
 
 def logout_user() -> None:

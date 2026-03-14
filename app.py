@@ -54,7 +54,7 @@ if st.session_state.authenticated:
 
         if not history:
             st.info("Você ainda não possui sessões de estudo registradas.")
-            st.write("Assim que houver registros, o painel exibirá métricas e histórico.")
+            st.write("Assim que houver registros, o painel exibirá métricas, gráficos e histórico.")
         else:
             metric_col1, metric_col2, metric_col3 = st.columns(3)
 
@@ -67,11 +67,31 @@ if st.session_state.authenticated:
             with metric_col3:
                 st.metric("Tempo total em minutos", f'{metrics["total_minutes"]} min')
 
-            st.markdown("### Tempo por disciplina")
-            if metrics["subject_table"].empty:
-                st.info("Ainda não há dados suficientes por disciplina.")
-            else:
-                st.dataframe(metrics["subject_table"], use_container_width=True, hide_index=True)
+            chart_col1, chart_col2 = st.columns(2)
+
+            with chart_col1:
+                st.markdown("### Horas totais por dia")
+                if metrics["daily_chart"].empty:
+                    st.info("Ainda não há dados suficientes para o gráfico de horas totais.")
+                else:
+                    st.bar_chart(
+                        metrics["daily_chart"],
+                        x="Data",
+                        y="Horas",
+                        use_container_width=True,
+                    )
+
+            with chart_col2:
+                st.markdown("### Tempo por disciplina")
+                if metrics["subject_chart"].empty:
+                    st.info("Ainda não há dados suficientes para o gráfico por disciplina.")
+                else:
+                    st.bar_chart(
+                        metrics["subject_chart"],
+                        x="Disciplina",
+                        y="Horas",
+                        use_container_width=True,
+                    )
 
             st.markdown("### Histórico de estudos")
 
