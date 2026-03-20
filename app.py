@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import date
 
 from services.auth_service import register_user, login_user, logout_user
 from services.dashboard_service import get_study_history, calculate_dashboard_metrics
@@ -28,7 +29,7 @@ if "refresh_token" not in st.session_state:
 st.title("StudyRats")
 
 if st.session_state.authenticated:
-    st.subheader("Dashboard de Estudos")
+    st.subheader("Área do usuário")
     st.write(f"Bem-vindo, **{st.session_state.user_email}**")
 
     col_logout, _ = st.columns([1, 5])
@@ -43,77 +44,103 @@ if st.session_state.authenticated:
             st.session_state.refresh_token = None
             st.rerun()
 
-    try:
-        history = get_study_history(
-            st.session_state.user_id,
-            st.session_state.access_token,
-            st.session_state.refresh_token,
-        )
+    dashboard_tab, session_tab = st.tabs(["Dashboard", "Registrar estudo"])
 
-        metrics = calculate_dashboard_metrics(history)
-
-        if not history:
-            st.info("Você ainda não possui sessões de estudo registradas.")
-            st.write("Assim que houver registros, o painel exibirá métricas, gráficos e histórico.")
-        else:
-            metric_col1, metric_col2, metric_col3 = st.columns(3)
-
-            with metric_col1:
-                st.metric("Sessões registradas", metrics["total_sessions"])
-
-            with metric_col2:
-                st.metric("Tempo total estudado", f'{metrics["total_hours"]} h')
-
-            with metric_col3:
-                st.metric("Tempo total em minutos", f'{metrics["total_minutes"]} min')
-
-            chart_col1, chart_col2 = st.columns(2)
-
-            with chart_col1:
-                st.markdown("### Horas totais por dia")
-                if metrics["daily_chart"].empty:
-                    st.info("Ainda não há dados suficientes para o gráfico de horas totais.")
-                else:
-                    st.bar_chart(
-                        metrics["daily_chart"],
-                        x="Data",
-                        y="Horas",
-                        use_container_width=True,
-                    )
-
-            with chart_col2:
-                st.markdown("### Tempo por disciplina")
-                if metrics["subject_chart"].empty:
-                    st.info("Ainda não há dados suficientes para o gráfico por disciplina.")
-                else:
-                    st.bar_chart(
-                        metrics["subject_chart"],
-                        x="Disciplina",
-                        y="Horas",
-                        use_container_width=True,
-                    )
-
-            st.markdown("### Histórico de estudos")
-
-            history_df = pd.DataFrame(history)
-            history_df = history_df.rename(
-                columns={
-                    "subject_name": "Disciplina",
-                    "studied_minutes": "Minutos estudados",
-                    "studied_at": "Data de estudo",
-                    "created_at": "Registrado em",
-                }
+    with dashboard_tab:
+        try:
+            history = get_study_history(
+                st.session_state.user_id,
+                st.session_state.access_token,
+                st.session_state.refresh_token,
             )
 
-            history_df = history_df[
-                ["Disciplina", "Minutos estudados", "Data de estudo", "Registrado em"]
-            ]
+            metrics = calculate_dashboard_metrics(history)
 
-            st.dataframe(history_df, use_container_width=True, hide_index=True)
+            if not history:
+                st.info("Você ainda não possui sessões de estudo registradas.")
+                st.write("Assim que houver registros, o painel exibirá métricas, gráficos e histórico.")
+            else:
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
 
-    except Exception as e:
-        st.error("Não foi possível carregar o dashboard.")
-        st.exception(e)
+                with metric_col1:
+                    st.metric("Sessões registradas", metrics["total_sessions"])
+
+                with metric_col2:
+                    st.metric("Tempo total estudado", f'{metrics["total_hours"]} h')
+
+                with metric_col3:
+                    st.metric("Tempo total em minutos", f'{metrics["total_minutes"]} min')
+
+                chart_col1, chart_col2 = st.columns(2)
+
+                with chart_col1:
+                    st.markdown("### Horas totais por dia")
+                    if metrics["daily_chart"].empty:
+                        st.info("Ainda não há dados suficientes para o gráfico de horas totais.")
+                    else:
+                        st.bar_chart(
+                            metrics["daily_chart"],
+                            x="Data",
+                            y="Horas",
+                            use_container_width=True,
+                        )
+
+                with chart_col2:
+                    st.markdown("### Tempo por disciplina")
+                    if metrics["subject_chart"].empty:
+                        st.info("Ainda não há dados suficientes para o gráfico por disciplina.")
+                    else:
+                        st.bar_chart(
+                            metrics["subject_chart"],
+                            x="Disciplina",
+                            y="Horas",
+                            use_container_width=True,
+                        )
+
+                st.markdown("### Histórico de estudos")
+
+                history_df = pd.DataFrame(history)
+                history_df = history_df.rename(
+                    columns={
+                        "subject_name": "Disciplina",
+                        "studied_minutes": "Minutos estudados",
+                        "studied_at": "Data de estudo",
+                        "created_at": "Registrado em",
+                    }
+                )
+
+                history_df = history_df[
+                    ["Disciplina", "Minutos estudados", "Data de estudo", "Registrado em"]
+                ]
+
+                st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+        except Exception as e:
+            st.error("Não foi possível carregar o dashboard.")
+            st.exception(e)
+
+    with session_tab:
+        st.header("Registrar sessão de estudo")
+        with st.form("study_session_form"):
+            subject_name = st.text_input("Disciplina")
+            studied_at = st.date_input("Data do estudo", value=date.today())
+            studied_minutes = st.number_input(
+                "Tempo estudado (em minutos)",
+                min_value=1,
+                step=1,
+                value=60,
+            )
+            save_session_submitted = st.form_submit_button("Salvar sessão")
+
+        if save_session_submitted:
+            st.info("A lógica de salvamento da sessão será adicionada na próxima etapa.")
+            st.write(
+                {
+                    "disciplina": subject_name,
+                    "data": studied_at.isoformat(),
+                    "tempo_minutos": int(studied_minutes),
+                }
+            )
 
 else:
     tab_login, tab_signup = st.tabs(["Entrar", "Cadastrar"])
