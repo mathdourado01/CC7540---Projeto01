@@ -4,7 +4,12 @@ from datetime import date
 
 from services.auth_service import register_user, login_user, logout_user
 from services.dashboard_service import get_study_history, calculate_dashboard_metrics
-from utils.validators import validate_signup_form, validate_login_form
+from services.study_session_service import register_study_session
+from utils.validators import (
+    validate_signup_form,
+    validate_login_form,
+    validate_study_session_form,
+)
 
 st.set_page_config(page_title="StudyRats", page_icon="🐭", layout="wide")
 
@@ -133,14 +138,26 @@ if st.session_state.authenticated:
             save_session_submitted = st.form_submit_button("Salvar sessão")
 
         if save_session_submitted:
-            st.info("A lógica de salvamento da sessão será adicionada na próxima etapa.")
-            st.write(
-                {
-                    "disciplina": subject_name,
-                    "data": studied_at.isoformat(),
-                    "tempo_minutos": int(studied_minutes),
-                }
-            )
+            errors = validate_study_session_form(subject_name, studied_at, int(studied_minutes))
+
+            if errors:
+                for error in errors:
+                    st.error(error)
+            else:
+                success, message = register_study_session(
+                    user_id=st.session_state.user_id,
+                    access_token=st.session_state.access_token,
+                    refresh_token=st.session_state.refresh_token,
+                    subject_name=subject_name,
+                    studied_at=studied_at,
+                    studied_minutes=int(studied_minutes),
+                )
+
+                if success:
+                    st.success(message)
+                    st.info("O histórico será atualizado na próxima etapa.")
+                else:
+                    st.error(message)
 
 else:
     tab_login, tab_signup = st.tabs(["Entrar", "Cadastrar"])

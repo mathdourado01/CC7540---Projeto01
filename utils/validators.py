@@ -39,3 +39,17 @@ def validate_login_form(email: str, password: str) -> list[str]:
         errors.append("A senha é obrigatória.")
 
     return errors
+
+def validate_study_session_form(subject_name: str, studied_at, studied_minutes: int) -> list[str]:
+    errors = []
+
+    if not subject_name.strip():
+        errors.append("A disciplina é obrigatória.")
+
+    if studied_at is None:
+        errors.append("A data do estudo é obrigatória.")
+
+    if studied_minutes is None or int(studied_minutes) <= 0:
+        errors.append("O tempo estudado deve ser maior que zero.")
+
+    return errors
