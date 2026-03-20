@@ -5,6 +5,7 @@ from datetime import date
 from services.auth_service import register_user, login_user, logout_user
 from services.dashboard_service import get_study_history, calculate_dashboard_metrics
 from services.study_session_service import register_study_session
+from services.user_subject_service import get_user_subjects
 from utils.validators import (
     validate_signup_form,
     validate_login_form,
@@ -126,8 +127,29 @@ if st.session_state.authenticated:
 
     with session_tab:
         st.header("Registrar sessão de estudo")
+
+        user_subjects = get_user_subjects(
+            st.session_state.user_id,
+            st.session_state.access_token,
+            st.session_state.refresh_token,
+        )
+
+        if user_subjects:
+            subject_mode = st.radio(
+                "Como deseja informar a disciplina?",
+                ["Selecionar disciplina já usada", "Digitar nova disciplina"],
+                horizontal=True,
+            )
+        else:
+            subject_mode = "Digitar nova disciplina"
+            st.info("Você ainda não possui disciplinas anteriores. Digite a disciplina manualmente.")
+
         with st.form("study_session_form"):
-            subject_name = st.text_input("Disciplina")
+            if user_subjects and subject_mode == "Selecionar disciplina já usada":
+                subject_name = st.selectbox("Disciplina", user_subjects)
+            else:
+                subject_name = st.text_input("Disciplina")
+
             studied_at = st.date_input("Data do estudo", value=date.today())
             studied_minutes = st.number_input(
                 "Tempo estudado (em minutos)",
@@ -154,8 +176,10 @@ if st.session_state.authenticated:
                 )
 
                 if success:
+                    get_user_subjects.clear()
+                    get_study_history.clear()
                     st.success(message)
-                    st.info("O histórico será atualizado na próxima etapa.")
+                    st.rerun()
                 else:
                     st.error(message)
 
