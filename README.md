@@ -45,3 +45,15 @@ A imagem do quadro Kanban pode ser encontrado na pasta arquivos_de_aula.
 •	Manter o código versionado e organizado
 •	Garantir qualidade técnica (testes, boas práticas)
 •	Apoiar o PO e o SM quando necessário
+
+
+## Parte 2
+Nesta etapa, o projeto adiciona o serviço de registro de sessão, o fluxo de envio do formulário no app, a inserção na tabela `study_sessions` e o uso de `returning="minimal"` para manter o salvamento enxuto.
+
+
+## Parte 3
+Nesta etapa, o projeto passa a carregar disciplinas já utilizadas pelo usuário e atualiza o histórico de estudos imediatamente após o salvamento de uma nova sessão.
+
+
+## Parte 4
+Nesta etapa, o projeto adiciona a aba de ranking do grupo, a listagem de participantes, a ordenação dos participantes, a exibição da posição do usuário no ranking e a paginação da lista.

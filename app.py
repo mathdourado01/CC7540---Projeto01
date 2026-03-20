@@ -6,6 +6,7 @@ from services.auth_service import register_user, login_user, logout_user
 from services.dashboard_service import get_study_history, calculate_dashboard_metrics
 from services.study_session_service import register_study_session
 from services.user_subject_service import get_user_subjects
+from services.ranking_service import get_basic_ranking, get_user_position, paginate_rows
 from utils.validators import (
     validate_signup_form,
     validate_login_form,
@@ -50,7 +51,7 @@ if st.session_state.authenticated:
             st.session_state.refresh_token = None
             st.rerun()
 
-    dashboard_tab, session_tab = st.tabs(["Dashboard", "Registrar estudo"])
+    dashboard_tab, session_tab, ranking_tab = st.tabs(["Dashboard", "Registrar estudo", "Ranking do grupo"])
 
     with dashboard_tab:
         try:
@@ -182,6 +183,56 @@ if st.session_state.authenticated:
                     st.rerun()
                 else:
                     st.error(message)
+
+    with ranking_tab:
+        st.header("Ranking do grupo")
+
+        try:
+            ranking_rows = get_basic_ranking(
+                st.session_state.access_token,
+                st.session_state.refresh_token,
+            )
+
+            if not ranking_rows:
+                st.info("Ainda não há participantes ou dados suficientes para exibir o ranking.")
+            else:
+                metric_col1, metric_col2 = st.columns(2)
+
+                with metric_col1:
+                    st.metric("Participantes", len(ranking_rows))
+
+                with metric_col2:
+                    user_position = get_user_position(ranking_rows, st.session_state.user_id)
+                    st.metric("Sua posição", user_position if user_position is not None else "-")
+
+                total_pages = max(1, (len(ranking_rows) + 9) // 10)
+                selected_page = st.selectbox(
+                    "Página",
+                    options=list(range(1, total_pages + 1)),
+                    index=0,
+                    key="ranking_page",
+                )
+
+                paged_rows, _ = paginate_rows(ranking_rows, selected_page, 10)
+
+                ranking_display = []
+                for row in paged_rows:
+                    ranking_display.append(
+                        {
+                            "Posição": row["position"],
+                            "Nome": row["display_name"],
+                            "Pontos": row["total_points"],
+                            "Minutos": row["total_minutes"],
+                            "Horas": round(row["total_minutes"] / 60, 2),
+                        }
+                    )
+
+                ranking_df = pd.DataFrame(ranking_display)
+                st.dataframe(ranking_df, use_container_width=True, hide_index=True)
+
+        except Exception as e:
+            st.error("Não foi possível carregar o ranking do grupo.")
+            st.exception(e)
 
 else:
     tab_login, tab_signup = st.tabs(["Entrar", "Cadastrar"])
