@@ -40,11 +40,45 @@ def validate_login_form(email: str, password: str) -> list[str]:
 
     return errors
 
-def validate_study_session_form(subject_name: str, studied_at, studied_minutes: int) -> list[str]:
+
+def validate_create_group_form(group_name: str) -> list[str]:
+    errors = []
+
+    if not group_name.strip():
+        errors.append("O nome do grupo é obrigatório.")
+
+    if len(group_name.strip()) < 3:
+        errors.append("O nome do grupo deve ter pelo menos 3 caracteres.")
+
+    return errors
+
+
+def validate_join_group_form(invite_code: str) -> list[str]:
+    errors = []
+
+    if not invite_code.strip():
+        errors.append("O código do grupo é obrigatório.")
+
+    return errors
+
+
+def validate_create_subject_form(subject_name: str) -> list[str]:
     errors = []
 
     if not subject_name.strip():
-        errors.append("A disciplina é obrigatória.")
+        errors.append("O nome da disciplina é obrigatório.")
+
+    if len(subject_name.strip()) < 2:
+        errors.append("O nome da disciplina deve ter pelo menos 2 caracteres.")
+
+    return errors
+
+
+def validate_study_session_form(subject_id: str, studied_at, studied_minutes: int) -> list[str]:
+    errors = []
+
+    if not subject_id:
+        errors.append("Selecione uma disciplina.")
 
     if studied_at is None:
         errors.append("A data do estudo é obrigatória.")
