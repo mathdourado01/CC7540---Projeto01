@@ -1,7 +1,8 @@
 # CC7540 - Plataforma de Acompanhamento de Estudos com Gamificação
 
 ## Link do Trello:
-https://trello.com/b/1j6WDfBm/studyrats
+StudyRats: https://trello.com/b/1j6WDfBm/studyrats
+Kanban de risco: https://trello.com/b/sFC0pKBk/kanban-de-riscos
 
 ## Objetivo da Sprint 1
 O objetivo da Sprint 1 foi desenvolver a base funcional da plataforma **StudyRats**, contemplando a implementação das funcionalidades de **cadastro**, **login** e **dashboard de métricas**, de forma a permitir o acesso dos usuários ao sistema e a visualização inicial de informações relevantes sobre seu desempenho. Além disso, a sprint também prevê a implementação do **registro/upload de sessões de estudo** e do **ranking local de comparação**, ampliando a experiência do usuário com recursos de acompanhamento de progresso e comparação de desempenho dentro da plataforma.
