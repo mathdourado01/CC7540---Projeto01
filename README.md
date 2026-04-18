@@ -1,7 +1,7 @@
 # CC7540 - Plataforma de Acompanhamento de Estudos com Gamificação
 
 ## Link do Trello:
-StudyRats: https://trello.com/b/1j6WDfBm/studyrats
+StudyRats: https://trello.com/b/1j6WDfBm/studyrats<br>
 Kanban de risco: https://trello.com/b/sFC0pKBk/kanban-de-riscos
 
 ## Objetivo da Sprint 1
