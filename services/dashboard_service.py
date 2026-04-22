@@ -1,4 +1,6 @@
 from collections import defaultdict
+from datetime import date
+
 import pandas as pd
 import streamlit as st
 
@@ -21,10 +23,91 @@ def get_study_history(user_id: str, access_token: str, refresh_token: str) -> li
     return response.data or []
 
 
+def _parse_study_date(value: str | date | None) -> date | None:
+    if value is None:
+        return None
+
+    if isinstance(value, date):
+        return value
+
+    return date.fromisoformat(str(value))
+
+
+def _get_unique_study_dates(history: list[dict]) -> list[date]:
+    unique_dates = {
+        parsed_date
+        for item in history
+        if (parsed_date := _parse_study_date(item.get("studied_at"))) is not None
+    }
+
+    return sorted(unique_dates, reverse=True)
+
+
+def calculate_streak_state_from_dates(
+    study_dates: list[str | date],
+    reference_date: date | None = None,
+) -> dict:
+    if reference_date is None:
+        reference_date = date.today()
+
+    unique_dates = sorted(
+        {
+            parsed_date
+            for raw_date in study_dates
+            if (parsed_date := _parse_study_date(raw_date)) is not None
+        },
+        reverse=True,
+    )
+
+    if not unique_dates:
+        return {
+            "current_streak": 0,
+            "latest_study_date": None,
+            "streak_broken": False,
+        }
+
+    latest_study_date = unique_dates[0]
+    days_without_study = (reference_date - latest_study_date).days
+
+    if days_without_study > 1:
+        return {
+            "current_streak": 0,
+            "latest_study_date": latest_study_date,
+            "streak_broken": True,
+        }
+
+    streak_days = 1
+    previous_date = latest_study_date
+
+    for next_date in unique_dates[1:]:
+        difference_in_days = (previous_date - next_date).days
+
+        if difference_in_days == 1:
+            streak_days += 1
+            previous_date = next_date
+            continue
+
+        break
+
+    return {
+        "current_streak": streak_days,
+        "latest_study_date": latest_study_date,
+        "streak_broken": False,
+    }
+
+
+def _calculate_current_streak(history: list[dict]) -> int:
+    unique_study_dates = _get_unique_study_dates(history)
+    streak_state = calculate_streak_state_from_dates(unique_study_dates)
+
+    return streak_state["current_streak"]
+
+
 def calculate_dashboard_metrics(history: list[dict]) -> dict:
     total_sessions = len(history)
     total_minutes = sum(item["studied_minutes"] for item in history)
     total_hours = round(total_minutes / 60, 2)
+    current_streak = _calculate_current_streak(history)
 
     minutes_per_subject = defaultdict(int)
     minutes_per_day = defaultdict(int)
@@ -63,6 +146,7 @@ def calculate_dashboard_metrics(history: list[dict]) -> dict:
         "total_sessions": total_sessions,
         "total_minutes": total_minutes,
         "total_hours": total_hours,
+        "current_streak": current_streak,
         "subject_chart": subject_chart,
         "daily_chart": daily_chart,
     }
