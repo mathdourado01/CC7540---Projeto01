@@ -96,6 +96,35 @@ def calculate_streak_state_from_dates(
     }
 
 
+def calculate_highest_streak_from_dates(study_dates: list[str | date]) -> int:
+    unique_dates = sorted(
+        {
+            parsed_date
+            for raw_date in study_dates
+            if (parsed_date := _parse_study_date(raw_date)) is not None
+        }
+    )
+
+    if not unique_dates:
+        return 0
+
+    highest_streak = 1
+    current_sequence = 1
+
+    for index in range(1, len(unique_dates)):
+        difference_in_days = (unique_dates[index] - unique_dates[index - 1]).days
+
+        if difference_in_days == 1:
+            current_sequence += 1
+        else:
+            current_sequence = 1
+
+        if current_sequence > highest_streak:
+            highest_streak = current_sequence
+
+    return highest_streak
+
+
 def _calculate_current_streak(history: list[dict]) -> int:
     unique_study_dates = _get_unique_study_dates(history)
     streak_state = calculate_streak_state_from_dates(unique_study_dates)
@@ -103,11 +132,17 @@ def _calculate_current_streak(history: list[dict]) -> int:
     return streak_state["current_streak"]
 
 
+def _calculate_highest_streak(history: list[dict]) -> int:
+    unique_study_dates = _get_unique_study_dates(history)
+    return calculate_highest_streak_from_dates(unique_study_dates)
+
+
 def calculate_dashboard_metrics(history: list[dict]) -> dict:
     total_sessions = len(history)
     total_minutes = sum(item["studied_minutes"] for item in history)
     total_hours = round(total_minutes / 60, 2)
     current_streak = _calculate_current_streak(history)
+    highest_streak = _calculate_highest_streak(history)
 
     minutes_per_subject = defaultdict(int)
     minutes_per_day = defaultdict(int)
@@ -147,6 +182,7 @@ def calculate_dashboard_metrics(history: list[dict]) -> dict:
         "total_minutes": total_minutes,
         "total_hours": total_hours,
         "current_streak": current_streak,
+        "highest_streak": highest_streak,
         "subject_chart": subject_chart,
         "daily_chart": daily_chart,
     }

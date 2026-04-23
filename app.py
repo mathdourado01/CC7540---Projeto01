@@ -64,6 +64,53 @@ def apply_custom_ui():
             color: #1B5E20;
             margin-bottom: 0.5rem;
         }
+
+        .streak-card {
+            background: linear-gradient(135deg, #FFF8E1 0%, #FFF3CD 100%);
+            border: 1px solid #F6D57A;
+            border-radius: 18px;
+            padding: 18px 20px;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
+            margin-top: 8px;
+            min-height: 132px;
+        }
+
+        .streak-card--record {
+            background: linear-gradient(135deg, #E8F5E9 0%, #DDF6E4 100%);
+            border: 1px solid #8ED1A0;
+        }
+
+        .streak-label {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #8D6E00;
+            margin-bottom: 6px;
+        }
+
+        .streak-card--record .streak-label {
+            color: #256D3C;
+        }
+
+        .streak-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #5D4037;
+            line-height: 1.1;
+        }
+
+        .streak-card--record .streak-value {
+            color: #1B5E20;
+        }
+
+        .streak-caption {
+            font-size: 0.92rem;
+            color: #6D4C41;
+            margin-top: 6px;
+        }
+
+        .streak-card--record .streak-caption {
+            color: #2F5D3A;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -84,6 +131,82 @@ def end_card():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+def render_current_streak_component(current_streak: int):
+    day_label = "dia" if current_streak == 1 else "dias"
+
+    st.markdown(
+        f"""
+        <div class="streak-card">
+            <div class="streak-label">🔥 Streak atual</div>
+            <div class="streak-value">{current_streak} {day_label}</div>
+            <div class="streak-caption">Continue estudando para manter sua sequência ativa.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_highest_streak_component(highest_streak: int):
+    day_label = "dia" if highest_streak == 1 else "dias"
+
+    st.markdown(
+        f"""
+        <div class="streak-card streak-card--record">
+            <div class="streak-label">🏅 Maior streak alcançado</div>
+            <div class="streak-value">{highest_streak} {day_label}</div>
+            <div class="streak-caption">Este é o seu recorde de constância até agora.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def build_streak_feedback_message(previous_metrics: dict, updated_metrics: dict) -> tuple[str, str]:
+    previous_current_streak = previous_metrics.get("current_streak", 0)
+    updated_current_streak = updated_metrics.get("current_streak", 0)
+
+    previous_highest_streak = previous_metrics.get("highest_streak", 0)
+    updated_highest_streak = updated_metrics.get("highest_streak", 0)
+
+    if updated_current_streak > previous_current_streak and updated_highest_streak > previous_highest_streak:
+        return (
+            "success",
+            f"🔥 Sua streak subiu para {updated_current_streak} dias e você bateu um novo recorde de {updated_highest_streak} dias!",
+        )
+
+    if updated_current_streak > previous_current_streak:
+        return (
+            "success",
+            f"🔥 Sua streak foi atualizada para {updated_current_streak} dias consecutivos!",
+        )
+
+    if updated_highest_streak > previous_highest_streak:
+        return (
+            "success",
+            f"🏅 Novo recorde alcançado: {updated_highest_streak} dias consecutivos!",
+        )
+
+    if updated_current_streak < previous_current_streak:
+        return (
+            "warning",
+            f"⚠️ Sua streak atual agora é de {updated_current_streak} dias.",
+        )
+
+    return (
+        "info",
+        "Seus indicadores de streak já foram atualizados com o novo registro.",
+    )
+
+
+def show_flash_message(message_type: str, message_text: str):
+    if message_type == "success":
+        st.success(message_text)
+    elif message_type == "warning":
+        st.warning(message_text)
+    else:
+        st.info(message_text)
+
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -101,6 +224,15 @@ if "access_token" not in st.session_state:
 
 if "refresh_token" not in st.session_state:
     st.session_state.refresh_token = None
+
+if "dashboard_metrics_override" not in st.session_state:
+    st.session_state.dashboard_metrics_override = None
+
+if "dashboard_history_override" not in st.session_state:
+    st.session_state.dashboard_history_override = None
+
+if "streak_feedback" not in st.session_state:
+    st.session_state.streak_feedback = None
 
 apply_custom_ui()
 
@@ -121,6 +253,9 @@ if st.session_state.authenticated:
             st.session_state.user_name = None
             st.session_state.access_token = None
             st.session_state.refresh_token = None
+            st.session_state.dashboard_metrics_override = None
+            st.session_state.dashboard_history_override = None
+            st.session_state.streak_feedback = None
             st.rerun()
 
     current_group = get_user_group(
@@ -138,27 +273,53 @@ if st.session_state.authenticated:
 
     if dashboard_tab.open:
         with dashboard_tab:
-            start_card("Resumo do grupo")
-            if current_group:
-                col_group_1, col_group_2 = st.columns(2)
-
-                with col_group_1:
-                    st.success(f"Você está no grupo: **{current_group['name']}**")
-
-                with col_group_2:
-                    st.info(f"Código do grupo: **{current_group['invite_code']}**")
-            else:
-                st.info("Você ainda não participa de um grupo.")
-            end_card()
-
             try:
-                history = get_study_history(
-                    st.session_state.user_id,
-                    st.session_state.access_token,
-                    st.session_state.refresh_token,
-                )
+                if (
+                    st.session_state.dashboard_history_override is not None
+                    and st.session_state.dashboard_metrics_override is not None
+                ):
+                    history = st.session_state.dashboard_history_override
+                    metrics = st.session_state.dashboard_metrics_override
+                else:
+                    history = get_study_history(
+                        st.session_state.user_id,
+                        st.session_state.access_token,
+                        st.session_state.refresh_token,
+                    )
+                    metrics = calculate_dashboard_metrics(history)
 
-                metrics = calculate_dashboard_metrics(history)
+                if st.session_state.streak_feedback:
+                    show_flash_message(
+                        st.session_state.streak_feedback["type"],
+                        st.session_state.streak_feedback["message"],
+                    )
+                    st.session_state.streak_feedback = None
+
+                start_card("Seu progresso de consistência")
+                streak_col_1, streak_col_2 = st.columns(2)
+
+                with streak_col_1:
+                    render_current_streak_component(metrics.get("current_streak", 0))
+
+                with streak_col_2:
+                    render_highest_streak_component(metrics.get("highest_streak", 0))
+                end_card()
+
+                st.session_state.dashboard_history_override = None
+                st.session_state.dashboard_metrics_override = None
+
+                start_card("Resumo do grupo")
+                if current_group:
+                    col_group_1, col_group_2 = st.columns(2)
+
+                    with col_group_1:
+                        st.success(f"Você está no grupo: **{current_group['name']}**")
+
+                    with col_group_2:
+                        st.info(f"Código do grupo: **{current_group['invite_code']}**")
+                else:
+                    st.info("Você ainda não participa de um grupo.")
+                end_card()
 
                 start_card("Métricas gerais")
                 if not history:
@@ -390,6 +551,13 @@ if st.session_state.authenticated:
                             for error in errors:
                                 st.error(error)
                         else:
+                            previous_history = get_study_history(
+                                st.session_state.user_id,
+                                st.session_state.access_token,
+                                st.session_state.refresh_token,
+                            )
+                            previous_metrics = calculate_dashboard_metrics(previous_history)
+
                             success, message = register_study_session(
                                 user_id=st.session_state.user_id,
                                 access_token=st.session_state.access_token,
@@ -402,6 +570,26 @@ if st.session_state.authenticated:
                             if success:
                                 get_study_history.clear()
                                 get_group_ranking.clear()
+
+                                updated_history = get_study_history(
+                                    st.session_state.user_id,
+                                    st.session_state.access_token,
+                                    st.session_state.refresh_token,
+                                )
+                                updated_metrics = calculate_dashboard_metrics(updated_history)
+
+                                feedback_type, feedback_message = build_streak_feedback_message(
+                                    previous_metrics,
+                                    updated_metrics,
+                                )
+
+                                st.session_state.dashboard_history_override = updated_history
+                                st.session_state.dashboard_metrics_override = updated_metrics
+                                st.session_state.streak_feedback = {
+                                    "type": feedback_type,
+                                    "message": feedback_message,
+                                }
+
                                 st.success(message)
                                 st.rerun()
                             else:
