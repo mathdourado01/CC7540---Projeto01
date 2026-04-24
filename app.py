@@ -7,10 +7,11 @@ from services.dashboard_service import (
     get_study_history,
     calculate_dashboard_metrics,
 )
-
+from services.achievement_service import check_reached_achievements
 from services.streak_service import (
     get_user_streak,
-    recalculate_and_save_user_streak,
+    update_streak_after_study_session,
+    recalculate_streak_on_app_open,
 )
 
 from services.group_service import get_user_group, create_group, join_group
@@ -226,11 +227,17 @@ def load_persisted_streak_once() -> dict:
     ):
         return st.session_state.persisted_streak
 
-    streak_data = get_user_streak(
-        st.session_state.user_id,
-        st.session_state.access_token,
-        st.session_state.refresh_token,
+    streak_data = recalculate_streak_on_app_open(
+        user_id=st.session_state.user_id,
+        access_token=st.session_state.access_token,
+        refresh_token=st.session_state.refresh_token,
     )
+
+    return update_streak_state(streak_data)
+def update_streak_state(streak_data: dict) -> dict:
+    """
+    Atualiza o estado da aplicação com os dados mais recentes da streak.
+    """
 
     normalized_streak = {
         "current_streak": streak_data.get("current_streak", 0),
@@ -243,13 +250,35 @@ def load_persisted_streak_once() -> dict:
             streak_data.get("highest_streak", 0),
         ),
         "last_study_date": streak_data.get("last_study_date"),
+        "status": streak_data.get("status"),
+        "message": streak_data.get("message"),
     }
 
     st.session_state.persisted_streak = normalized_streak
     st.session_state.persisted_streak_loaded = True
 
+    st.session_state.streak_snapshot_key = _build_daily_streak_snapshot_key()
+    st.session_state.streak_snapshot = normalized_streak
+
     return normalized_streak
 
+def update_achievement_state(achievement_result: dict) -> dict:
+    """
+    Atualiza o estado da aplicação com as conquistas liberadas no processamento.
+    """
+
+    unlocked_achievements = achievement_result.get("unlocked_achievements", [])
+
+    st.session_state.unlocked_achievements = unlocked_achievements
+    st.session_state.achievement_feedback = {
+        "success": achievement_result.get("success", True),
+        "has_new_achievements": achievement_result.get("has_new_achievements", False),
+        "total_unlocked": achievement_result.get("total_unlocked", 0),
+        "message": achievement_result.get("message"),
+        "unlocked_achievements": unlocked_achievements,
+    }
+
+    return st.session_state.achievement_feedback
 
 def resolve_safe_opening_streak_summary() -> dict:
     if st.session_state.dashboard_metrics_override is not None:
@@ -302,6 +331,18 @@ def resolve_safe_opening_streak_summary() -> dict:
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
+if "persisted_streak" not in st.session_state:
+    st.session_state.persisted_streak = None
+
+if "persisted_streak_loaded" not in st.session_state:
+    st.session_state.persisted_streak_loaded = False
+
+if "unlocked_achievements" not in st.session_state:
+    st.session_state.unlocked_achievements = []
+
+if "achievement_feedback" not in st.session_state:
+    st.session_state.achievement_feedback = None
+
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
 
@@ -332,12 +373,6 @@ if "streak_snapshot_key" not in st.session_state:
 if "streak_snapshot" not in st.session_state:
     st.session_state.streak_snapshot = None
 
-if "persisted_streak" not in st.session_state:
-    st.session_state.persisted_streak = None
-
-if "persisted_streak_loaded" not in st.session_state:
-    st.session_state.persisted_streak_loaded = False
-
 apply_custom_ui()
 
 st.title("StudyRats")
@@ -364,6 +399,8 @@ if st.session_state.authenticated:
             st.session_state.streak_snapshot = None
             st.session_state.persisted_streak = None
             st.session_state.persisted_streak_loaded = False
+            st.session_state.unlocked_achievements = []
+            st.session_state.achievement_feedback = None
             st.rerun()
 
     current_group = get_user_group(
@@ -404,6 +441,26 @@ if st.session_state.authenticated:
                         st.session_state.streak_feedback["message"],
                     )
                     st.session_state.streak_feedback = None
+
+                if st.session_state.achievement_feedback:
+                    achievement_feedback = st.session_state.achievement_feedback
+
+                    if achievement_feedback.get("has_new_achievements"):
+                        st.success("🏆 Nova conquista desbloqueada!")
+
+                        for achievement in achievement_feedback.get("unlocked_achievements", []):
+                            icon = achievement.get("icon") or "🏆"
+                            title = achievement.get("title", "Conquista")
+                            description = achievement.get("description", "")
+                            points_reward = achievement.get("points_reward", 0)
+
+                            st.info(
+                                f"{icon} **{title}**\n\n"
+                                f"{description}\n\n"
+                                f"+{points_reward} pontos"
+                            )
+
+                    st.session_state.achievement_feedback = None
 
                 start_card("Seu progresso de consistência")
                 streak_col_1, streak_col_2 = st.columns(2)
@@ -616,59 +673,6 @@ if st.session_state.authenticated:
                         )
             end_card()
 
-    if subjects_tab.open:
-        with subjects_tab:
-            start_card("Disciplinas do grupo")
-            if not current_group:
-                st.info("Crie ou entre em um grupo para gerenciar disciplinas.")
-            else:
-                subjects = get_group_subjects(
-                    current_group["id"],
-                    st.session_state.access_token,
-                    st.session_state.refresh_token,
-                )
-
-                col_subject_form, col_subject_list = st.columns([1, 1.2])
-
-                with col_subject_form:
-                    with st.form("create_subject_form"):
-                        subject_name = st.text_input("Nome da disciplina")
-                        create_subject_submitted = st.form_submit_button("Adicionar disciplina")
-
-                    if create_subject_submitted:
-                        errors = validate_create_subject_form(subject_name)
-
-                        if errors:
-                            for error in errors:
-                                st.error(error)
-                        else:
-                            success, message = create_group_subject(
-                                current_group["id"],
-                                st.session_state.user_id,
-                                st.session_state.access_token,
-                                st.session_state.refresh_token,
-                                subject_name,
-                            )
-
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
-
-                with col_subject_list:
-                    if not subjects:
-                        st.info("Ainda não há disciplinas cadastradas para este grupo.")
-                    else:
-                        subjects_df = pd.DataFrame(subjects)
-                        subjects_df = subjects_df.rename(columns={"name": "Disciplina"})
-                        st.dataframe(
-                            subjects_df[["Disciplina"]],
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-            end_card()
-
     if sessions_tab.open:
         with sessions_tab:
             start_card("Registrar sessão de estudo")
@@ -742,11 +746,14 @@ if st.session_state.authenticated:
                                 get_study_history.clear()
                                 get_group_ranking.clear()
 
-                                updated_streak = recalculate_and_save_user_streak(
+                                updated_streak = update_streak_after_study_session(
                                     user_id=st.session_state.user_id,
+                                    studied_at=studied_at,
                                     access_token=st.session_state.access_token,
                                     refresh_token=st.session_state.refresh_token,
                                 )
+
+                                updated_streak_state = update_streak_state(updated_streak)
 
                                 updated_history = get_study_history(
                                     st.session_state.user_id,
@@ -756,29 +763,25 @@ if st.session_state.authenticated:
 
                                 updated_metrics = calculate_dashboard_metrics(updated_history)
 
-                                updated_metrics["current_streak"] = updated_streak.get("current_streak", 0)
-                                updated_metrics["highest_streak"] = updated_streak.get(
-                                    "highest_streak",
-                                    updated_streak.get("longest_streak", 0),
+                                updated_metrics["current_streak"] = updated_streak_state.get("current_streak", 0)
+                                updated_metrics["highest_streak"] = updated_streak_state.get("highest_streak", 0)
+                                updated_metrics["longest_streak"] = updated_streak_state.get("longest_streak", 0)
+                                updated_metrics["last_study_date"] = updated_streak_state.get("last_study_date")
+
+                                achievement_result = check_reached_achievements(
+                                    user_id=st.session_state.user_id,
+                                    metrics=updated_metrics,
+                                    streak_data=updated_streak_state,
+                                    access_token=st.session_state.access_token,
+                                    refresh_token=st.session_state.refresh_token,
                                 )
-                                updated_metrics["longest_streak"] = updated_streak.get(
-                                    "longest_streak",
-                                    updated_streak.get("highest_streak", 0),
-                                )
-                                updated_metrics["last_study_date"] = updated_streak.get("last_study_date")
+
+                                update_achievement_state(achievement_result)
 
                                 feedback_type, feedback_message = build_streak_feedback_message(
                                     previous_metrics,
                                     updated_metrics,
                                 )
-
-                                st.session_state.persisted_streak = {
-                                    "current_streak": updated_metrics.get("current_streak", 0),
-                                    "highest_streak": updated_metrics.get("highest_streak", 0),
-                                    "longest_streak": updated_metrics.get("longest_streak", 0),
-                                    "last_study_date": updated_metrics.get("last_study_date"),
-                                }
-                                st.session_state.persisted_streak_loaded = True
 
                                 st.session_state.dashboard_history_override = updated_history
                                 st.session_state.dashboard_metrics_override = updated_metrics
@@ -786,10 +789,8 @@ if st.session_state.authenticated:
                                 st.session_state.streak_feedback = {
                                     "type": feedback_type,
                                     "message": feedback_message,
+                                    "status": updated_streak.get("status"),
                                 }
-
-                                st.session_state.streak_snapshot_key = _build_daily_streak_snapshot_key()
-                                st.session_state.streak_snapshot = st.session_state.persisted_streak
 
                                 st.success(message)
                                 st.rerun()
@@ -939,6 +940,8 @@ else:
                     st.session_state.streak_snapshot = None
                     st.session_state.persisted_streak = None
                     st.session_state.persisted_streak_loaded = False
+                    st.session_state.unlocked_achievements = []
+                    st.session_state.achievement_feedback = None
                     st.rerun()
                 else:
                     st.error(message)
