@@ -23,6 +23,22 @@ def get_study_history(user_id: str, access_token: str, refresh_token: str) -> li
     return response.data or []
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def get_streak_summary(user_id: str, access_token: str, refresh_token: str) -> dict:
+    supabase = get_supabase_client(access_token, refresh_token)
+
+    response = (
+        supabase.table("study_sessions")
+        .select("studied_at")
+        .eq("user_id", user_id)
+        .order("studied_at", desc=True)
+        .execute()
+    )
+
+    history = response.data or []
+    return recalculate_streaks_from_history(history)
+
+
 def _parse_study_date(value: str | date | None) -> date | None:
     if value is None:
         return None
@@ -125,24 +141,122 @@ def calculate_highest_streak_from_dates(study_dates: list[str | date]) -> int:
     return highest_streak
 
 
-def _calculate_current_streak(history: list[dict]) -> int:
+def recalculate_streaks_from_history(
+    history: list[dict],
+    reference_date: date | None = None,
+) -> dict:
     unique_study_dates = _get_unique_study_dates(history)
-    streak_state = calculate_streak_state_from_dates(unique_study_dates)
 
-    return streak_state["current_streak"]
+    streak_state = calculate_streak_state_from_dates(
+        unique_study_dates,
+        reference_date=reference_date,
+    )
+
+    highest_streak = calculate_highest_streak_from_dates(unique_study_dates)
+
+    return {
+        "current_streak": streak_state["current_streak"],
+        "highest_streak": highest_streak,
+        "latest_study_date": streak_state["latest_study_date"],
+        "streak_broken": streak_state["streak_broken"],
+        "total_unique_study_days": len(unique_study_dates),
+        "recalculated_from_history": True,
+    }
+
+
+def simulate_streak_batches(
+    test_batches: list[dict],
+    default_reference_date: date | str | None = None,
+) -> list[dict]:
+    parsed_default_reference_date = _parse_study_date(default_reference_date)
+
+    simulation_results = []
+
+    for index, test_case in enumerate(test_batches, start=1):
+        case_name = test_case.get("name") or f"Caso {index}"
+        study_dates = test_case.get("study_dates", [])
+        expected_current_streak = test_case.get("expected_current_streak")
+        expected_highest_streak = test_case.get("expected_highest_streak")
+        expected_streak_broken = test_case.get("expected_streak_broken")
+
+        reference_date = _parse_study_date(test_case.get("reference_date"))
+        if reference_date is None:
+            reference_date = parsed_default_reference_date
+
+        unique_dates = sorted(
+            {
+                parsed_date
+                for raw_date in study_dates
+                if (parsed_date := _parse_study_date(raw_date)) is not None
+            },
+            reverse=True,
+        )
+
+        streak_state = calculate_streak_state_from_dates(
+            unique_dates,
+            reference_date=reference_date,
+        )
+        highest_streak = calculate_highest_streak_from_dates(unique_dates)
+
+        current_streak_matches = (
+            expected_current_streak is None
+            or streak_state["current_streak"] == expected_current_streak
+        )
+        highest_streak_matches = (
+            expected_highest_streak is None
+            or highest_streak == expected_highest_streak
+        )
+        streak_broken_matches = (
+            expected_streak_broken is None
+            or streak_state["streak_broken"] == expected_streak_broken
+        )
+
+        simulation_results.append(
+            {
+                "case_name": case_name,
+                "reference_date": reference_date,
+                "input_study_dates": study_dates,
+                "unique_study_dates": unique_dates,
+                "current_streak": streak_state["current_streak"],
+                "highest_streak": highest_streak,
+                "latest_study_date": streak_state["latest_study_date"],
+                "streak_broken": streak_state["streak_broken"],
+                "total_unique_study_days": len(unique_dates),
+                "expected_current_streak": expected_current_streak,
+                "expected_highest_streak": expected_highest_streak,
+                "expected_streak_broken": expected_streak_broken,
+                "current_streak_matches": current_streak_matches,
+                "highest_streak_matches": highest_streak_matches,
+                "streak_broken_matches": streak_broken_matches,
+                "all_expectations_match": (
+                    current_streak_matches
+                    and highest_streak_matches
+                    and streak_broken_matches
+                ),
+            }
+        )
+
+    return simulation_results
+
+
+def _calculate_current_streak(history: list[dict]) -> int:
+    streak_summary = recalculate_streaks_from_history(history)
+    return streak_summary["current_streak"]
 
 
 def _calculate_highest_streak(history: list[dict]) -> int:
-    unique_study_dates = _get_unique_study_dates(history)
-    return calculate_highest_streak_from_dates(unique_study_dates)
+    streak_summary = recalculate_streaks_from_history(history)
+    return streak_summary["highest_streak"]
 
 
 def calculate_dashboard_metrics(history: list[dict]) -> dict:
     total_sessions = len(history)
     total_minutes = sum(item["studied_minutes"] for item in history)
     total_hours = round(total_minutes / 60, 2)
-    current_streak = _calculate_current_streak(history)
-    highest_streak = _calculate_highest_streak(history)
+
+    streak_summary = recalculate_streaks_from_history(history)
+    current_streak = streak_summary["current_streak"]
+    highest_streak = streak_summary["highest_streak"]
 
     minutes_per_subject = defaultdict(int)
     minutes_per_day = defaultdict(int)
@@ -183,6 +297,9 @@ def calculate_dashboard_metrics(history: list[dict]) -> dict:
         "total_hours": total_hours,
         "current_streak": current_streak,
         "highest_streak": highest_streak,
+        "streak_broken": streak_summary["streak_broken"],
+        "latest_study_date": streak_summary["latest_study_date"],
+        "total_unique_study_days": streak_summary["total_unique_study_days"],
         "subject_chart": subject_chart,
         "daily_chart": daily_chart,
     }

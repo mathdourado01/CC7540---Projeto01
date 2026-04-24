@@ -3,7 +3,11 @@ import pandas as pd
 from datetime import date
 
 from services.auth_service import register_user, login_user, logout_user
-from services.dashboard_service import get_study_history, calculate_dashboard_metrics
+from services.dashboard_service import (
+    get_study_history,
+    calculate_dashboard_metrics,
+    get_streak_summary,
+)
 from services.group_service import get_user_group, create_group, join_group
 from services.group_subject_service import get_group_subjects, create_group_subject
 from services.study_session_service import register_study_session
@@ -207,6 +211,45 @@ def show_flash_message(message_type: str, message_text: str):
         st.info(message_text)
 
 
+def _build_daily_streak_snapshot_key() -> str:
+    return f"{st.session_state.user_id}:{date.today().isoformat()}"
+
+
+def resolve_safe_opening_streak_summary() -> dict:
+    if st.session_state.dashboard_metrics_override is not None:
+        override_summary = {
+            "current_streak": st.session_state.dashboard_metrics_override.get("current_streak", 0),
+            "highest_streak": st.session_state.dashboard_metrics_override.get("highest_streak", 0),
+        }
+        st.session_state.streak_snapshot_key = _build_daily_streak_snapshot_key()
+        st.session_state.streak_snapshot = override_summary
+        return override_summary
+
+    snapshot_key = _build_daily_streak_snapshot_key()
+
+    if (
+        st.session_state.streak_snapshot_key == snapshot_key
+        and st.session_state.streak_snapshot is not None
+    ):
+        return st.session_state.streak_snapshot
+
+    fresh_summary = get_streak_summary(
+        st.session_state.user_id,
+        st.session_state.access_token,
+        st.session_state.refresh_token,
+    )
+
+    safe_summary = {
+        "current_streak": fresh_summary.get("current_streak", 0),
+        "highest_streak": fresh_summary.get("highest_streak", 0),
+    }
+
+    st.session_state.streak_snapshot_key = snapshot_key
+    st.session_state.streak_snapshot = safe_summary
+
+    return safe_summary
+
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -234,6 +277,12 @@ if "dashboard_history_override" not in st.session_state:
 if "streak_feedback" not in st.session_state:
     st.session_state.streak_feedback = None
 
+if "streak_snapshot_key" not in st.session_state:
+    st.session_state.streak_snapshot_key = None
+
+if "streak_snapshot" not in st.session_state:
+    st.session_state.streak_snapshot = None
+
 apply_custom_ui()
 
 st.title("StudyRats")
@@ -256,6 +305,8 @@ if st.session_state.authenticated:
             st.session_state.dashboard_metrics_override = None
             st.session_state.dashboard_history_override = None
             st.session_state.streak_feedback = None
+            st.session_state.streak_snapshot_key = None
+            st.session_state.streak_snapshot = None
             st.rerun()
 
     current_group = get_user_group(
@@ -274,6 +325,8 @@ if st.session_state.authenticated:
     if dashboard_tab.open:
         with dashboard_tab:
             try:
+                streak_summary = resolve_safe_opening_streak_summary()
+
                 if (
                     st.session_state.dashboard_history_override is not None
                     and st.session_state.dashboard_metrics_override is not None
@@ -299,10 +352,10 @@ if st.session_state.authenticated:
                 streak_col_1, streak_col_2 = st.columns(2)
 
                 with streak_col_1:
-                    render_current_streak_component(metrics.get("current_streak", 0))
+                    render_current_streak_component(streak_summary.get("current_streak", 0))
 
                 with streak_col_2:
-                    render_highest_streak_component(metrics.get("highest_streak", 0))
+                    render_highest_streak_component(streak_summary.get("highest_streak", 0))
                 end_card()
 
                 st.session_state.dashboard_history_override = None
@@ -506,6 +559,59 @@ if st.session_state.authenticated:
                         )
             end_card()
 
+    if subjects_tab.open:
+        with subjects_tab:
+            start_card("Disciplinas do grupo")
+            if not current_group:
+                st.info("Crie ou entre em um grupo para gerenciar disciplinas.")
+            else:
+                subjects = get_group_subjects(
+                    current_group["id"],
+                    st.session_state.access_token,
+                    st.session_state.refresh_token,
+                )
+
+                col_subject_form, col_subject_list = st.columns([1, 1.2])
+
+                with col_subject_form:
+                    with st.form("create_subject_form"):
+                        subject_name = st.text_input("Nome da disciplina")
+                        create_subject_submitted = st.form_submit_button("Adicionar disciplina")
+
+                    if create_subject_submitted:
+                        errors = validate_create_subject_form(subject_name)
+
+                        if errors:
+                            for error in errors:
+                                st.error(error)
+                        else:
+                            success, message = create_group_subject(
+                                current_group["id"],
+                                st.session_state.user_id,
+                                st.session_state.access_token,
+                                st.session_state.refresh_token,
+                                subject_name,
+                            )
+
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+
+                with col_subject_list:
+                    if not subjects:
+                        st.info("Ainda não há disciplinas cadastradas para este grupo.")
+                    else:
+                        subjects_df = pd.DataFrame(subjects)
+                        subjects_df = subjects_df.rename(columns={"name": "Disciplina"})
+                        st.dataframe(
+                            subjects_df[["Disciplina"]],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+            end_card()
+
     if sessions_tab.open:
         with sessions_tab:
             start_card("Registrar sessão de estudo")
@@ -569,6 +675,7 @@ if st.session_state.authenticated:
 
                             if success:
                                 get_study_history.clear()
+                                get_streak_summary.clear()
                                 get_group_ranking.clear()
 
                                 updated_history = get_study_history(
@@ -588,6 +695,11 @@ if st.session_state.authenticated:
                                 st.session_state.streak_feedback = {
                                     "type": feedback_type,
                                     "message": feedback_message,
+                                }
+                                st.session_state.streak_snapshot_key = _build_daily_streak_snapshot_key()
+                                st.session_state.streak_snapshot = {
+                                    "current_streak": updated_metrics.get("current_streak", 0),
+                                    "highest_streak": updated_metrics.get("highest_streak", 0),
                                 }
 
                                 st.success(message)
@@ -734,6 +846,8 @@ else:
                     st.session_state.access_token = session.access_token
                     st.session_state.refresh_token = session.refresh_token
                     st.session_state.main_nav = "📊 Dashboard"
+                    st.session_state.streak_snapshot_key = None
+                    st.session_state.streak_snapshot = None
                     st.rerun()
                 else:
                     st.error(message)
