@@ -6,8 +6,13 @@ from services.auth_service import register_user, login_user, logout_user
 from services.dashboard_service import (
     get_study_history,
     calculate_dashboard_metrics,
-    get_streak_summary,
 )
+
+from services.streak_service import (
+    get_user_streak,
+    recalculate_and_save_user_streak,
+)
+
 from services.group_service import get_user_group, create_group, join_group
 from services.group_subject_service import get_group_subjects, create_group_subject
 from services.study_session_service import register_study_session
@@ -214,15 +219,55 @@ def show_flash_message(message_type: str, message_text: str):
 def _build_daily_streak_snapshot_key() -> str:
     return f"{st.session_state.user_id}:{date.today().isoformat()}"
 
+def load_persisted_streak_once() -> dict:
+    if (
+        st.session_state.persisted_streak_loaded
+        and st.session_state.persisted_streak is not None
+    ):
+        return st.session_state.persisted_streak
+
+    streak_data = get_user_streak(
+        st.session_state.user_id,
+        st.session_state.access_token,
+        st.session_state.refresh_token,
+    )
+
+    normalized_streak = {
+        "current_streak": streak_data.get("current_streak", 0),
+        "highest_streak": streak_data.get(
+            "highest_streak",
+            streak_data.get("longest_streak", 0),
+        ),
+        "longest_streak": streak_data.get(
+            "longest_streak",
+            streak_data.get("highest_streak", 0),
+        ),
+        "last_study_date": streak_data.get("last_study_date"),
+    }
+
+    st.session_state.persisted_streak = normalized_streak
+    st.session_state.persisted_streak_loaded = True
+
+    return normalized_streak
+
 
 def resolve_safe_opening_streak_summary() -> dict:
     if st.session_state.dashboard_metrics_override is not None:
         override_summary = {
             "current_streak": st.session_state.dashboard_metrics_override.get("current_streak", 0),
             "highest_streak": st.session_state.dashboard_metrics_override.get("highest_streak", 0),
+            "longest_streak": st.session_state.dashboard_metrics_override.get(
+                "longest_streak",
+                st.session_state.dashboard_metrics_override.get("highest_streak", 0),
+            ),
+            "last_study_date": st.session_state.dashboard_metrics_override.get("last_study_date"),
         }
+
+        st.session_state.persisted_streak = override_summary
+        st.session_state.persisted_streak_loaded = True
         st.session_state.streak_snapshot_key = _build_daily_streak_snapshot_key()
         st.session_state.streak_snapshot = override_summary
+
         return override_summary
 
     snapshot_key = _build_daily_streak_snapshot_key()
@@ -233,15 +278,19 @@ def resolve_safe_opening_streak_summary() -> dict:
     ):
         return st.session_state.streak_snapshot
 
-    fresh_summary = get_streak_summary(
-        st.session_state.user_id,
-        st.session_state.access_token,
-        st.session_state.refresh_token,
-    )
+    persisted_summary = load_persisted_streak_once()
 
     safe_summary = {
-        "current_streak": fresh_summary.get("current_streak", 0),
-        "highest_streak": fresh_summary.get("highest_streak", 0),
+        "current_streak": persisted_summary.get("current_streak", 0),
+        "highest_streak": persisted_summary.get(
+            "highest_streak",
+            persisted_summary.get("longest_streak", 0),
+        ),
+        "longest_streak": persisted_summary.get(
+            "longest_streak",
+            persisted_summary.get("highest_streak", 0),
+        ),
+        "last_study_date": persisted_summary.get("last_study_date"),
     }
 
     st.session_state.streak_snapshot_key = snapshot_key
@@ -283,6 +332,12 @@ if "streak_snapshot_key" not in st.session_state:
 if "streak_snapshot" not in st.session_state:
     st.session_state.streak_snapshot = None
 
+if "persisted_streak" not in st.session_state:
+    st.session_state.persisted_streak = None
+
+if "persisted_streak_loaded" not in st.session_state:
+    st.session_state.persisted_streak_loaded = False
+
 apply_custom_ui()
 
 st.title("StudyRats")
@@ -307,6 +362,8 @@ if st.session_state.authenticated:
             st.session_state.streak_feedback = None
             st.session_state.streak_snapshot_key = None
             st.session_state.streak_snapshot = None
+            st.session_state.persisted_streak = None
+            st.session_state.persisted_streak_loaded = False
             st.rerun()
 
     current_group = get_user_group(
@@ -657,13 +714,21 @@ if st.session_state.authenticated:
                             for error in errors:
                                 st.error(error)
                         else:
-                            previous_history = get_study_history(
-                                st.session_state.user_id,
-                                st.session_state.access_token,
-                                st.session_state.refresh_token,
-                            )
-                            previous_metrics = calculate_dashboard_metrics(previous_history)
+                            previous_streak = load_persisted_streak_once()
 
+                            previous_metrics = {
+                                "current_streak": previous_streak.get("current_streak", 0),
+                                "highest_streak": previous_streak.get(
+                                    "highest_streak", 
+                                    previous_streak.get("longest_streak", 0),
+                                ),
+                                "longest_streak": previous_streak.get(
+                                    "longest_streak",
+                                    previous_streak.get("highest_streak", 0),
+                                ),
+                                "last_study_date": previous_streak.get("last_study_date"),
+                            }
+                        
                             success, message = register_study_session(
                                 user_id=st.session_state.user_id,
                                 access_token=st.session_state.access_token,
@@ -675,32 +740,56 @@ if st.session_state.authenticated:
 
                             if success:
                                 get_study_history.clear()
-                                get_streak_summary.clear()
                                 get_group_ranking.clear()
+
+                                updated_streak = recalculate_and_save_user_streak(
+                                    user_id=st.session_state.user_id,
+                                    access_token=st.session_state.access_token,
+                                    refresh_token=st.session_state.refresh_token,
+                                )
 
                                 updated_history = get_study_history(
                                     st.session_state.user_id,
                                     st.session_state.access_token,
                                     st.session_state.refresh_token,
                                 )
+
                                 updated_metrics = calculate_dashboard_metrics(updated_history)
+
+                                updated_metrics["current_streak"] = updated_streak.get("current_streak", 0)
+                                updated_metrics["highest_streak"] = updated_streak.get(
+                                    "highest_streak",
+                                    updated_streak.get("longest_streak", 0),
+                                )
+                                updated_metrics["longest_streak"] = updated_streak.get(
+                                    "longest_streak",
+                                    updated_streak.get("highest_streak", 0),
+                                )
+                                updated_metrics["last_study_date"] = updated_streak.get("last_study_date")
 
                                 feedback_type, feedback_message = build_streak_feedback_message(
                                     previous_metrics,
                                     updated_metrics,
                                 )
 
+                                st.session_state.persisted_streak = {
+                                    "current_streak": updated_metrics.get("current_streak", 0),
+                                    "highest_streak": updated_metrics.get("highest_streak", 0),
+                                    "longest_streak": updated_metrics.get("longest_streak", 0),
+                                    "last_study_date": updated_metrics.get("last_study_date"),
+                                }
+                                st.session_state.persisted_streak_loaded = True
+
                                 st.session_state.dashboard_history_override = updated_history
                                 st.session_state.dashboard_metrics_override = updated_metrics
+
                                 st.session_state.streak_feedback = {
                                     "type": feedback_type,
                                     "message": feedback_message,
                                 }
+
                                 st.session_state.streak_snapshot_key = _build_daily_streak_snapshot_key()
-                                st.session_state.streak_snapshot = {
-                                    "current_streak": updated_metrics.get("current_streak", 0),
-                                    "highest_streak": updated_metrics.get("highest_streak", 0),
-                                }
+                                st.session_state.streak_snapshot = st.session_state.persisted_streak
 
                                 st.success(message)
                                 st.rerun()
@@ -848,6 +937,8 @@ else:
                     st.session_state.main_nav = "📊 Dashboard"
                     st.session_state.streak_snapshot_key = None
                     st.session_state.streak_snapshot = None
+                    st.session_state.persisted_streak = None
+                    st.session_state.persisted_streak_loaded = False
                     st.rerun()
                 else:
                     st.error(message)
