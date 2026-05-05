@@ -7,16 +7,14 @@ from services.dashboard_service import (
     get_study_history,
     calculate_dashboard_metrics,
 )
-from services.achievement_service import check_reached_achievements
-from services.streak_service import (
-    get_user_streak,
-    update_streak_after_study_session,
-    recalculate_streak_on_app_open,
+from services.gamification_service import (
+    generate_processing_key,
+    process_study_session_with_gamification,
 )
+from services.streak_service import recalculate_streak_on_app_open
 
 from services.group_service import get_user_group, create_group, join_group
 from services.group_subject_service import get_group_subjects, create_group_subject
-from services.study_session_service import register_study_session
 from services.ranking_service import (
     get_group_ranking,
     sort_ranking,
@@ -171,48 +169,13 @@ def render_highest_streak_component(highest_streak: int):
     )
 
 
-def build_streak_feedback_message(previous_metrics: dict, updated_metrics: dict) -> tuple[str, str]:
-    previous_current_streak = previous_metrics.get("current_streak", 0)
-    updated_current_streak = updated_metrics.get("current_streak", 0)
-
-    previous_highest_streak = previous_metrics.get("highest_streak", 0)
-    updated_highest_streak = updated_metrics.get("highest_streak", 0)
-
-    if updated_current_streak > previous_current_streak and updated_highest_streak > previous_highest_streak:
-        return (
-            "success",
-            f"🔥 Sua streak subiu para {updated_current_streak} dias e você bateu um novo recorde de {updated_highest_streak} dias!",
-        )
-
-    if updated_current_streak > previous_current_streak:
-        return (
-            "success",
-            f"🔥 Sua streak foi atualizada para {updated_current_streak} dias consecutivos!",
-        )
-
-    if updated_highest_streak > previous_highest_streak:
-        return (
-            "success",
-            f"🏅 Novo recorde alcançado: {updated_highest_streak} dias consecutivos!",
-        )
-
-    if updated_current_streak < previous_current_streak:
-        return (
-            "warning",
-            f"⚠️ Sua streak atual agora é de {updated_current_streak} dias.",
-        )
-
-    return (
-        "info",
-        "Seus indicadores de streak já foram atualizados com o novo registro.",
-    )
-
-
 def show_flash_message(message_type: str, message_text: str):
     if message_type == "success":
         st.success(message_text)
     elif message_type == "warning":
         st.warning(message_text)
+    elif message_type == "error":
+        st.error(message_text)
     else:
         st.info(message_text)
 
@@ -220,20 +183,7 @@ def show_flash_message(message_type: str, message_text: str):
 def _build_daily_streak_snapshot_key() -> str:
     return f"{st.session_state.user_id}:{date.today().isoformat()}"
 
-def load_persisted_streak_once() -> dict:
-    if (
-        st.session_state.persisted_streak_loaded
-        and st.session_state.persisted_streak is not None
-    ):
-        return st.session_state.persisted_streak
 
-    streak_data = recalculate_streak_on_app_open(
-        user_id=st.session_state.user_id,
-        access_token=st.session_state.access_token,
-        refresh_token=st.session_state.refresh_token,
-    )
-
-    return update_streak_state(streak_data)
 def update_streak_state(streak_data: dict) -> dict:
     """
     Atualiza o estado da aplicação com os dados mais recentes da streak.
@@ -262,6 +212,23 @@ def update_streak_state(streak_data: dict) -> dict:
 
     return normalized_streak
 
+
+def load_persisted_streak_once() -> dict:
+    if (
+        st.session_state.persisted_streak_loaded
+        and st.session_state.persisted_streak is not None
+    ):
+        return st.session_state.persisted_streak
+
+    streak_data = recalculate_streak_on_app_open(
+        user_id=st.session_state.user_id,
+        access_token=st.session_state.access_token,
+        refresh_token=st.session_state.refresh_token,
+    )
+
+    return update_streak_state(streak_data)
+
+
 def update_achievement_state(achievement_result: dict) -> dict:
     """
     Atualiza o estado da aplicação com as conquistas liberadas no processamento.
@@ -279,6 +246,7 @@ def update_achievement_state(achievement_result: dict) -> dict:
     }
 
     return st.session_state.achievement_feedback
+
 
 def resolve_safe_opening_streak_summary() -> dict:
     if st.session_state.dashboard_metrics_override is not None:
@@ -343,6 +311,9 @@ if "unlocked_achievements" not in st.session_state:
 if "achievement_feedback" not in st.session_state:
     st.session_state.achievement_feedback = None
 
+if "pending_study_session_processing_key" not in st.session_state:
+    st.session_state.pending_study_session_processing_key = None
+
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
 
@@ -373,6 +344,7 @@ if "streak_snapshot_key" not in st.session_state:
 if "streak_snapshot" not in st.session_state:
     st.session_state.streak_snapshot = None
 
+
 apply_custom_ui()
 
 st.title("StudyRats")
@@ -401,6 +373,7 @@ if st.session_state.authenticated:
             st.session_state.persisted_streak_loaded = False
             st.session_state.unlocked_achievements = []
             st.session_state.achievement_feedback = None
+            st.session_state.pending_study_session_processing_key = None
             st.rerun()
 
     current_group = get_user_group(
@@ -720,82 +693,58 @@ if st.session_state.authenticated:
                         else:
                             previous_streak = load_persisted_streak_once()
 
-                            previous_metrics = {
-                                "current_streak": previous_streak.get("current_streak", 0),
-                                "highest_streak": previous_streak.get(
-                                    "highest_streak", 
-                                    previous_streak.get("longest_streak", 0),
-                                ),
-                                "longest_streak": previous_streak.get(
-                                    "longest_streak",
-                                    previous_streak.get("highest_streak", 0),
-                                ),
-                                "last_study_date": previous_streak.get("last_study_date"),
-                            }
-                        
-                            success, message = register_study_session(
+                            if st.session_state.pending_study_session_processing_key is None:
+                                st.session_state.pending_study_session_processing_key = generate_processing_key()
+
+                            gamification_result = process_study_session_with_gamification(
                                 user_id=st.session_state.user_id,
                                 access_token=st.session_state.access_token,
                                 refresh_token=st.session_state.refresh_token,
                                 subject_id=selected_subject_id,
                                 studied_at=studied_at,
                                 studied_minutes=int(studied_minutes),
+                                processing_key=st.session_state.pending_study_session_processing_key,
+                                previous_streak=previous_streak,
                             )
 
-                            if success:
+                            if gamification_result.get("success"):
                                 get_study_history.clear()
                                 get_group_ranking.clear()
 
-                                updated_streak = update_streak_after_study_session(
-                                    user_id=st.session_state.user_id,
-                                    studied_at=studied_at,
-                                    access_token=st.session_state.access_token,
-                                    refresh_token=st.session_state.refresh_token,
+                                updated_streak_state = update_streak_state(
+                                    gamification_result.get("streak", {})
                                 )
 
-                                updated_streak_state = update_streak_state(updated_streak)
-
-                                updated_history = get_study_history(
-                                    st.session_state.user_id,
-                                    st.session_state.access_token,
-                                    st.session_state.refresh_token,
-                                )
-
-                                updated_metrics = calculate_dashboard_metrics(updated_history)
+                                updated_history = gamification_result.get("dashboard_history", [])
+                                updated_metrics = gamification_result.get("metrics", {})
 
                                 updated_metrics["current_streak"] = updated_streak_state.get("current_streak", 0)
                                 updated_metrics["highest_streak"] = updated_streak_state.get("highest_streak", 0)
                                 updated_metrics["longest_streak"] = updated_streak_state.get("longest_streak", 0)
                                 updated_metrics["last_study_date"] = updated_streak_state.get("last_study_date")
 
-                                achievement_result = check_reached_achievements(
-                                    user_id=st.session_state.user_id,
-                                    metrics=updated_metrics,
-                                    streak_data=updated_streak_state,
-                                    access_token=st.session_state.access_token,
-                                    refresh_token=st.session_state.refresh_token,
-                                )
-
-                                update_achievement_state(achievement_result)
-
-                                feedback_type, feedback_message = build_streak_feedback_message(
-                                    previous_metrics,
-                                    updated_metrics,
+                                update_achievement_state(
+                                    gamification_result.get("achievements", {})
                                 )
 
                                 st.session_state.dashboard_history_override = updated_history
                                 st.session_state.dashboard_metrics_override = updated_metrics
 
                                 st.session_state.streak_feedback = {
-                                    "type": feedback_type,
-                                    "message": feedback_message,
-                                    "status": updated_streak.get("status"),
+                                    "type": gamification_result.get("feedback", {}).get("type", "success"),
+                                    "message": gamification_result.get("feedback", {}).get(
+                                        "message",
+                                        gamification_result.get("message"),
+                                    ),
+                                    "status": gamification_result.get("session_status"),
                                 }
 
-                                st.success(message)
+                                st.session_state.pending_study_session_processing_key = None
+
+                                st.success(gamification_result.get("message"))
                                 st.rerun()
                             else:
-                                st.error(message)
+                                st.error(gamification_result.get("message"))
             end_card()
 
     if ranking_tab.open:
@@ -942,6 +891,7 @@ else:
                     st.session_state.persisted_streak_loaded = False
                     st.session_state.unlocked_achievements = []
                     st.session_state.achievement_feedback = None
+                    st.session_state.pending_study_session_processing_key = None
                     st.rerun()
                 else:
                     st.error(message)
