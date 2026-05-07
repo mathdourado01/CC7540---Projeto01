@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
+from components.gamification_components import (
+    build_standard_gamification_payload,
+    render_standard_gamification_payload,
+)
 from services.auth_service import register_user, login_user, logout_user
 from services.dashboard_service import (
     get_study_history,
@@ -248,6 +252,31 @@ def update_achievement_state(achievement_result: dict) -> dict:
     return st.session_state.achievement_feedback
 
 
+def update_gamification_visual_payload(gamification_result: dict) -> dict:
+    """
+    Converte o retorno bruto da gamificação em payload padrão para o front-end.
+    """
+
+    payload = build_standard_gamification_payload(gamification_result)
+    st.session_state.latest_gamification_payload = payload
+
+    return payload
+
+
+def render_pending_gamification_visual_payload():
+    """
+    Renderiza o payload visual de gamificação, se houver algo novo para mostrar.
+    """
+
+    payload = st.session_state.get("latest_gamification_payload")
+
+    if not payload:
+        return
+
+    render_standard_gamification_payload(payload)
+    st.session_state.latest_gamification_payload = None
+
+
 def resolve_safe_opening_streak_summary() -> dict:
     if st.session_state.dashboard_metrics_override is not None:
         override_summary = {
@@ -311,6 +340,9 @@ if "unlocked_achievements" not in st.session_state:
 if "achievement_feedback" not in st.session_state:
     st.session_state.achievement_feedback = None
 
+if "latest_gamification_payload" not in st.session_state:
+    st.session_state.latest_gamification_payload = None
+
 if "pending_study_session_processing_key" not in st.session_state:
     st.session_state.pending_study_session_processing_key = None
 
@@ -373,6 +405,7 @@ if st.session_state.authenticated:
             st.session_state.persisted_streak_loaded = False
             st.session_state.unlocked_achievements = []
             st.session_state.achievement_feedback = None
+            st.session_state.latest_gamification_payload = None
             st.session_state.pending_study_session_processing_key = None
             st.rerun()
 
@@ -415,10 +448,15 @@ if st.session_state.authenticated:
                     )
                     st.session_state.streak_feedback = None
 
+                render_pending_gamification_visual_payload()
+
                 if st.session_state.achievement_feedback:
                     achievement_feedback = st.session_state.achievement_feedback
 
-                    if achievement_feedback.get("has_new_achievements"):
+                    if (
+                        achievement_feedback.get("has_new_achievements")
+                        and st.session_state.latest_gamification_payload is None
+                    ):
                         st.success("🏆 Nova conquista desbloqueada!")
 
                         for achievement in achievement_feedback.get("unlocked_achievements", []):
@@ -727,6 +765,8 @@ if st.session_state.authenticated:
                                     gamification_result.get("achievements", {})
                                 )
 
+                                update_gamification_visual_payload(gamification_result)
+
                                 st.session_state.dashboard_history_override = updated_history
                                 st.session_state.dashboard_metrics_override = updated_metrics
 
@@ -741,7 +781,6 @@ if st.session_state.authenticated:
 
                                 st.session_state.pending_study_session_processing_key = None
 
-                                st.success(gamification_result.get("message"))
                                 st.rerun()
                             else:
                                 st.error(gamification_result.get("message"))
@@ -891,6 +930,7 @@ else:
                     st.session_state.persisted_streak_loaded = False
                     st.session_state.unlocked_achievements = []
                     st.session_state.achievement_feedback = None
+                    st.session_state.latest_gamification_payload = None
                     st.session_state.pending_study_session_processing_key = None
                     st.rerun()
                 else:
