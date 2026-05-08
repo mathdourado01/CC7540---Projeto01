@@ -2,8 +2,14 @@ from datetime import date
 
 from services.supabase_client import get_supabase_client
 
+from rules.streak_rules import (
+    parse_study_date,
+    calculate_streak_summary_from_history,
+    build_streak_processing_response,
+    calculate_streak_update_after_session,
+)
 
-def _parse_study_date(value: str | date | None) -> date | None:
+def parse_study_date(value: str | date | None) -> date | None:
     if value is None:
         return None
 
@@ -24,7 +30,7 @@ def _calculate_current_streak_from_dates(
         {
             parsed_date
             for raw_date in study_dates
-            if (parsed_date := _parse_study_date(raw_date)) is not None
+            if (parsed_date := parse_study_date(raw_date)) is not None
         },
         reverse=True,
     )
@@ -70,7 +76,7 @@ def _calculate_longest_streak_from_dates(study_dates: list[str | date]) -> int:
         {
             parsed_date
             for raw_date in study_dates
-            if (parsed_date := _parse_study_date(raw_date)) is not None
+            if (parsed_date := parse_study_date(raw_date)) is not None
         }
     )
 
@@ -191,7 +197,7 @@ def update_user_streak(
 ) -> dict:
     supabase = get_supabase_client(access_token, refresh_token)
 
-    parsed_last_study_date = _parse_study_date(last_study_date)
+    parsed_last_study_date = parse_study_date(last_study_date)
 
     payload = {
         "user_id": user_id,
@@ -255,102 +261,50 @@ def update_streak_after_study_session(
     access_token: str,
     refresh_token: str,
 ) -> dict:
-    """
-    Atualiza a streak do usuário logo após o registro de uma nova sessão de estudo.
-
-    Regras:
-    - Se o usuário ainda não tem streak, cria current_streak = 1.
-    - Se já estudou no mesmo dia, mantém a streak.
-    - Se o último estudo foi ontem, incrementa a streak.
-    - Se o último estudo foi antes de ontem ou mais antigo, reseta para 1.
-    - Se a sessão cadastrada for anterior ao último estudo, recalcula pelo histórico.
-    """
-
     previous_streak = get_user_streak(
         user_id=user_id,
         access_token=access_token,
         refresh_token=refresh_token,
     )
 
-    study_date = _parse_study_date(studied_at)
-    previous_last_study_date = _parse_study_date(
-        previous_streak.get("last_study_date")
+    previous_streak["user_id"] = user_id
+
+    streak_update = calculate_streak_update_after_session(
+        previous_streak=previous_streak,
+        studied_at=studied_at,
     )
 
-    previous_current_streak = int(previous_streak.get("current_streak", 0))
-    previous_longest_streak = int(
-        previous_streak.get(
-            "longest_streak",
-            previous_streak.get("highest_streak", 0),
+    if not streak_update.get("success"):
+        return streak_update
+
+    if streak_update.get("status") == "needs_recalculation":
+        recalculated_streak = recalculate_and_save_user_streak(
+            user_id=user_id,
+            access_token=access_token,
+            refresh_token=refresh_token,
         )
-    )
 
-    if study_date is None:
         return build_streak_processing_response(
-            streak_data={
-                "user_id": user_id,
-                "current_streak": previous_current_streak,
-                "longest_streak": previous_longest_streak,
-                "highest_streak": previous_longest_streak,
-                "last_study_date": (
-                    previous_last_study_date.isoformat()
-                    if previous_last_study_date is not None
-                    else None
-                ),
-            },
-            status="invalid_date",
-            success=False,
-            message="Data de estudo inválida.",
+            streak_data=recalculated_streak,
+            status="recalculated",
+            success=True,
+            message="Streak recalculada com base no histórico.",
         )
-
-    if previous_last_study_date is None:
-        new_current_streak = 1
-        streak_status = "started"
-
-    else:
-        days_difference = (study_date - previous_last_study_date).days
-
-        if days_difference == 0:
-            new_current_streak = previous_current_streak
-            streak_status = "maintained"
-
-        elif days_difference == 1:
-            new_current_streak = previous_current_streak + 1
-            streak_status = "incremented"
-
-        elif days_difference > 1:
-            new_current_streak = 1
-            streak_status = "reset"
-
-        else:
-            recalculated_streak = recalculate_and_save_user_streak(
-                user_id=user_id,
-                access_token=access_token,
-                refresh_token=refresh_token,
-            )
-
-            return build_streak_processing_response(
-                streak_data=recalculated_streak,
-                status="recalculated",
-                success=True,
-                message="Streak recalculada com base no histórico.",
-            )
-
-    new_longest_streak = max(previous_longest_streak, new_current_streak)
 
     updated_streak = update_user_streak(
         user_id=user_id,
         access_token=access_token,
         refresh_token=refresh_token,
-        current_streak=new_current_streak,
-        longest_streak=new_longest_streak,
-        last_study_date=study_date,
+        current_streak=streak_update.get("current_streak", 0),
+        longest_streak=streak_update.get("longest_streak", 0),
+        last_study_date=streak_update.get("last_study_date"),
     )
 
     return build_streak_processing_response(
         streak_data=updated_streak,
-        status=streak_status,
+        status=streak_update.get("status", "none"),
         success=True,
+        message=streak_update.get("message"),
     )
 
 def build_streak_processing_response(

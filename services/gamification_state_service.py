@@ -3,23 +3,14 @@ from uuid import uuid4
 
 from services.supabase_client import get_supabase_client
 
+from rules.gamification_rules import (
+    POINTS_PER_LEVEL,
+    calculate_level,
+    calculate_points_to_next_level,
+    calculate_current_level_progress,
+)
 
 POINTS_PER_LEVEL = 100
-
-
-def calculate_level(total_points: int) -> int:
-    """
-    Calcula o nível do usuário com base na pontuação total.
-
-    Regra atual:
-    - 0 a 99 pontos: nível 1
-    - 100 a 199 pontos: nível 2
-    - 200 a 299 pontos: nível 3
-    """
-
-    total_points = int(total_points or 0)
-    return max((total_points // POINTS_PER_LEVEL) + 1, 1)
-
 
 def build_gamification_event_key(
     event_type: str,
@@ -169,40 +160,6 @@ def normalize_applied_event_result(row: dict | None) -> dict:
             "current_level_progress": calculate_current_level_progress(total_points),
         },
     }
-
-
-def calculate_points_to_next_level(total_points: int) -> int:
-    """
-    Calcula quantos pontos faltam para o próximo nível.
-    """
-
-    total_points = _safe_int(total_points, 0)
-    current_level = calculate_level(total_points)
-    next_level_minimum_points = current_level * POINTS_PER_LEVEL
-
-    return max(next_level_minimum_points - total_points, 0)
-
-
-def calculate_current_level_progress(total_points: int) -> dict:
-    """
-    Calcula o progresso dentro do nível atual.
-    """
-
-    total_points = _safe_int(total_points, 0)
-    current_level = calculate_level(total_points)
-    current_level_minimum_points = (current_level - 1) * POINTS_PER_LEVEL
-    points_inside_level = total_points - current_level_minimum_points
-
-    return {
-        "current_level": current_level,
-        "points_inside_level": points_inside_level,
-        "points_required_in_level": POINTS_PER_LEVEL,
-        "progress_percentage": min(
-            round((points_inside_level / POINTS_PER_LEVEL) * 100, 2),
-            100,
-        ),
-    }
-
 
 def get_user_gamification_state(
     user_id: str,

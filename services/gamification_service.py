@@ -4,9 +4,9 @@ from time import perf_counter
 from uuid import uuid4
 
 from services.achievement_service import (
-    DEFAULT_ACHIEVEMENTS,
     check_reached_achievements,
 )
+from rules.achievement_rules import DEFAULT_ACHIEVEMENTS
 from services.dashboard_service import calculate_dashboard_metrics, get_study_history
 from services.gamification_state_service import (
     apply_study_session_gamification_event,
