@@ -6,7 +6,12 @@ from components.gamification_components import (
     build_standard_gamification_payload,
     render_standard_gamification_payload,
 )
-from services.auth_service import register_user, login_user, logout_user
+from services.auth_service import (
+    register_user,
+    login_user,
+    logout_user,
+    request_password_recovery,
+)
 from services.dashboard_service import (
     get_study_history,
     calculate_dashboard_metrics,
@@ -189,10 +194,6 @@ def _build_daily_streak_snapshot_key() -> str:
 
 
 def update_streak_state(streak_data: dict) -> dict:
-    """
-    Atualiza o estado da aplicação com os dados mais recentes da streak.
-    """
-
     normalized_streak = {
         "current_streak": streak_data.get("current_streak", 0),
         "highest_streak": streak_data.get(
@@ -234,10 +235,6 @@ def load_persisted_streak_once() -> dict:
 
 
 def update_achievement_state(achievement_result: dict) -> dict:
-    """
-    Atualiza o estado da aplicação com as conquistas liberadas no processamento.
-    """
-
     unlocked_achievements = achievement_result.get("unlocked_achievements", [])
 
     st.session_state.unlocked_achievements = unlocked_achievements
@@ -253,10 +250,6 @@ def update_achievement_state(achievement_result: dict) -> dict:
 
 
 def update_gamification_visual_payload(gamification_result: dict) -> dict:
-    """
-    Converte o retorno bruto da gamificação em payload padrão para o front-end.
-    """
-
     payload = build_standard_gamification_payload(gamification_result)
     st.session_state.latest_gamification_payload = payload
 
@@ -264,10 +257,6 @@ def update_gamification_visual_payload(gamification_result: dict) -> dict:
 
 
 def render_pending_gamification_visual_payload():
-    """
-    Renderiza o payload visual de gamificação, se houver algo novo para mostrar.
-    """
-
     payload = st.session_state.get("latest_gamification_payload")
 
     if not payload:
@@ -346,6 +335,15 @@ if "latest_gamification_payload" not in st.session_state:
 if "pending_study_session_processing_key" not in st.session_state:
     st.session_state.pending_study_session_processing_key = None
 
+if "show_password_recovery" not in st.session_state:
+    st.session_state.show_password_recovery = False
+
+if "password_recovery_message" not in st.session_state:
+    st.session_state.password_recovery_message = None
+
+if "password_recovery_success" not in st.session_state:
+    st.session_state.password_recovery_success = None
+
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
 
@@ -407,6 +405,9 @@ if st.session_state.authenticated:
             st.session_state.achievement_feedback = None
             st.session_state.latest_gamification_payload = None
             st.session_state.pending_study_session_processing_key = None
+            st.session_state.show_password_recovery = False
+            st.session_state.password_recovery_message = None
+            st.session_state.password_recovery_success = None
             st.rerun()
 
     current_group = get_user_group(
@@ -932,9 +933,43 @@ else:
                     st.session_state.achievement_feedback = None
                     st.session_state.latest_gamification_payload = None
                     st.session_state.pending_study_session_processing_key = None
+                    st.session_state.show_password_recovery = False
+                    st.session_state.password_recovery_message = None
+                    st.session_state.password_recovery_success = None
                     st.rerun()
                 else:
                     st.error(message)
+
+        if st.button("Esqueci minha senha", use_container_width=True):
+            st.session_state.show_password_recovery = not st.session_state.show_password_recovery
+            st.session_state.password_recovery_message = None
+            st.session_state.password_recovery_success = None
+
+        if st.session_state.show_password_recovery:
+            st.divider()
+            st.subheader("Recuperação de senha")
+            st.write(
+                "Informe o e-mail cadastrado. Por segurança, o sistema não exibe senhas salvas."
+            )
+
+            with st.form("password_recovery_form"):
+                recovery_email = st.text_input("E-mail cadastrado", key="recovery_email")
+                recovery_submitted = st.form_submit_button(
+                    "Solicitar recuperação",
+                    use_container_width=True,
+                )
+
+            if recovery_submitted:
+                success, message = request_password_recovery(recovery_email)
+                st.session_state.password_recovery_success = success
+                st.session_state.password_recovery_message = message
+
+            if st.session_state.password_recovery_message:
+                if st.session_state.password_recovery_success:
+                    st.info(st.session_state.password_recovery_message)
+                else:
+                    st.error(st.session_state.password_recovery_message)
+
         end_card()
 
     with auth_tab_signup:

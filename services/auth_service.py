@@ -1,3 +1,5 @@
+import re
+
 from services.supabase_client import get_supabase_client
 
 
@@ -58,6 +60,38 @@ def login_user(email: str, password: str) -> tuple[bool, str, object | None, obj
             return False, "E-mail ou senha inválidos.", None, None
 
         return False, f"Erro ao fazer login: {e}", None, None
+
+
+def request_password_recovery(email: str) -> tuple[bool, str]:
+    """
+    Fluxo simples de recuperação de senha para apresentação.
+
+    Por segurança, o sistema não exibe senhas salvas na tela.
+    A senha do usuário também não é recuperável pelo Supabase Auth em texto puro.
+
+    Este fluxo apenas valida o e-mail informado e orienta o usuário a solicitar
+    a redefinição da senha ao administrador do sistema.
+    """
+
+    normalized_email = (email or "").strip().lower()
+
+    if not normalized_email:
+        return False, "Informe o e-mail cadastrado para solicitar a recuperação de senha."
+
+    email_pattern = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+
+    if not re.match(email_pattern, normalized_email):
+        return False, "Digite um e-mail válido."
+
+    return (
+        True,
+        (
+            "Solicitação de recuperação registrada. "
+            "Por segurança, não é possível exibir a senha salva na tela. "
+            "Se este e-mail estiver cadastrado no StudyRats, solicite ao administrador "
+            "do sistema a redefinição da senha."
+        ),
+    )
 
 
 def logout_user() -> None:
